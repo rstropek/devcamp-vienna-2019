@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hotelsapi
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hotelsapi
+  template:
+    metadata:
+      labels:
+        app: hotelsapi
+    spec:
+      containers:
+      - name: hotelsapi
+        image: devcamp19.azurecr.io/hotelsapi
+        ports:
+        - containerPort: 80
+        env:
+        - name: ConnectionStrings__DefaultConnection
+          value: "{{CONNSTRING}}"
+        - name: ApplicationInsights__InstrumentationKey
+          value: "{{AIKEY}}"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: hotelsapi-svc
+spec:
+  selector:
+    app: hotelsapi
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer
