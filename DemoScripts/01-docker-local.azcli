@@ -1,0 +1,28 @@
+# Lab 1: Build an ASP.NET Core Web API and run it locally in Docker Container
+# Note: Execute this script in the folder ../HotelsApi
+
+# Run preconfigured bash for developer camp
+docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock rstropek/devcamp
+
+# Create a docker id @ Docker Hub (https://hub.docker.com/signup)
+
+# Login Docker CLI
+docker login
+
+# Replace "rstropek" in the following line with your docker id
+DOCKER_ID="rstropek"
+IMG="hotelsapi"
+
+# Build API
+docker build -t $DOCKER_ID/$IMG .
+
+# Start SQL Server in Docker container
+docker run -e 'ACCEPT_EULA=Y' -e 'SA_PASSWORD=P@ssw0rd123' -p 1433:1433 -d --name sqldb mcr.microsoft.com/mssql/server
+
+# Start API in Docker container and link it with SQL Server
+docker run -it --rm -p 5000:80 --link sqldb:db -e Logging__LogLevel__Default=Information $DOCKER_ID/$IMG
+
+# Push API to Docker Hub
+docker push $DOCKER_ID/$IMG
+
+# Open https://hub.docker.com and verfiy that your image is available

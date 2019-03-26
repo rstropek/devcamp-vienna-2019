@@ -1,0 +1,84 @@
+# === START CONTAINER ================================================================
+
+# Create Keyvault where we can securely store service principal name and secret
+if ! az keyvault show --resource-group "$RG" --name "$KV"
+then
+    az keyvault create --resource-group "$RG" --name "$KV"
+    # az keyvault delete --resource-group "$RG" --name "$KV"
+
+    # Create service principal and store the generated password in Keyvault
+    az keyvault secret set --vault-name $KV --name $REG-pull-PASSWD \
+        --value $(az ad sp create-for-rbac --name $REG-pull2 --scopes $ACRID --role reader --query password --output tsv)
+    # az ad sp delete --id $(az ad sp list --display-name "$REG-pull" --query "[].appId" -o tsv)
+
+    # Store service principal's name in KeyVault
+    az keyvault secret set --vault-name $KV --name $REG-pull-usr \
+        --value $(az ad sp show --id http://$REG-pull2 --query appId --output tsv)
+
+    # Store connection string in KeyVault
+    az keyvault secret set --vault-name $KV --name $REG-sql-conn \
+        --value "Server=$SQL.database.windows.net,1433;Initial Catalog=$DB;User ID=dev;Password=$SQLPWD;Persist Security Info=False;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+fi
+
+# Start container from image in ACR if it does not already exist.
+# Note that we use ACI here. Other options would be App Service or AKS (Kubernetes)
+if ! az container show --resource-group "$RG" --name "$WEB"
+then
+    # Note how we get service principal data from Keyvault
+    az container create --resource-group "$RG" --name "$WEB" --image $REG.azurecr.io/$IMG --cpu 1 --memory 1 --ip-address public --ports 80 \
+        --registry-login-server $REG.azurecr.io \
+        --registry-username $(az keyvault secret show --vault-name $KV --name $REG-pull-usr --query value -o tsv) \
+        --registry-password $(az keyvault secret show --vault-name $KV --name $REG-pull-PASSWD --query value -o tsv) \
+        --secure-environment-variables "ConnectionStrings__DefaultConnection=$(az keyvault secret show --vault-name $KV --name $REG-sql-conn --query value -o tsv)" \
+                                       "ApplicationInsights__InstrumentationKey=$AIKEY"
+
+    # You could use the following statement to see logs
+    # az container attach --resource-group "$RG" --name "$WEB"
+
+    # You could use the following statement to delete the container
+    # az container delete --resource-group "$RG" --name "$WEB" --yes
+fi
+
+# === INTEGRATION ====================================================================
+
+# Demo demo website that displays events happening in EventGrid
+if output=$(az appservice plan show --resource-group "$RG" --name "$EVENT_SITE-plan") && [ -z "$output" ]
+then
+    az group deployment create --resource-group "$RG" \
+        --template-uri "https://raw.githubusercontent.com/Azure-Samples/azure-event-grid-viewer/master/azuredeploy.json" \
+        --parameters siteName=$EVENT_SITE hostingPlanName=$EVENT_SITE-plan
+fi
+
+# Register EventGrid provider if not already registered
+if [ $(az provider show --namespace Microsoft.EventGrid --query "registrationState" --output tsv) != "Registered" ]
+then
+    az provider register --namespace Microsoft.EventGrid
+fi
+
+# Add EventGrid subscription if not already exists
+if ! az eventgrid event-subscription show --name event-sub-acr --source-resource-id $ACRID
+then
+    az eventgrid event-subscription create --name event-sub-acr --source-resource-id $ACRID --endpoint $APP_ENDPOINT
+    # az eventgrid event-subscription delete --name event-sub-acr --resource-id $ACRID
+fi
+
+# Create a webhook so we get notified about container pushes
+if ! az acr webhook show --registry "$REG" --name "webhook1$REG"
+then
+    az acr webhook create --registry "$REG" --name "webhook1$REG" --actions push --uri $WHTARGET
+
+    # After creating the webhook, trigger a push and see how the webhook is triggered
+fi
+
+# Create a task that listens to change in GitHub and rebuilds images if necessary
+if ! az acr task show --registry "$REG" --name "$TASK"
+then
+    az acr task create --registry "$REG" --name "$TASK" --image $TASK:{{.Run.ID}} \
+        --context $GHREPO --branch master --file Dockerfile --git-access-token $GHPAT
+fi
+
+# Use the following command to manually trigger the task
+az acr task run --registry "$REG" --name "$TASK"
+
+# Use the following command to see a list of task runs
+az acr task list-runs --registry "$REG" --output table

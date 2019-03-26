@@ -1,0 +1,23 @@
+# @hostname = https://localhost:5001
+# @hostname = http://localhost:5000
+# @hostname = http://40.74.21.210
+@hostname = https://devcamp19cweb.azurewebsites.net
+
+###
+GET {{hostname}}/api/hotels/init
+
+###
+GET {{hostname}}/odata/$metadata
+
+###
+GET {{hostname}}/odata/hotels
+
+###
+GET {{hostname}}/odata/hotels?$top=3
+
+###
+GET {{hostname}}/odata/hotels?$filter=Country eq 'Austria'
+
+###
+GET {{hostname}}/odata/hotels?$filter=Country eq 'Austria'&$orderby=City
+

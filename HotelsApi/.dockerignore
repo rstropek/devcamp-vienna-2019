@@ -1,0 +1,5 @@
+bin
+Connected Services
+obj
+*.user
+*.Development.json

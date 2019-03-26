@@ -1,0 +1,59 @@
+# Make use you have installed all prerequisites:
+# * https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-apt?view=azure-cli-latest
+# * https://docs.docker.com/install/linux/docker-ce/ubuntu/
+# sudo apt-get install jq
+
+# Set some variables that we will use throughout this demo
+
+SUBSCRIPTION="Your Azure Subscription Name"
+WHTARGET="https://your-webhook-target.could-be-logic-app.com"
+GHPAT="your-github-personal-access-token"
+LOCATION="westeurope"
+IMG="hotelsapi"
+RG="devcamp"
+REG="devcamp19"
+SKU="premium"
+SP="devcamp19-sp"
+PASSWD="P@ssw0rd123"
+WEB="devcamp19-web"
+EVENT_SITE="devcamp19-events"
+LINUX_PLAN="devcamp19cplan"
+LINUX_WEB_APP="devcamp19cweb"
+APP_ENDPOINT="https://$EVENT_SITE.azurewebsites.net/api/updates"
+KV="vault$IMG"
+AKS="devcamp19aks"
+GHUSR="rstropek"
+GHREPO="https://github.com/rstropek/acr-github-demo"
+TASK="ghhelloworld"
+STORAGE="devcamp19store"
+STORAGESHARE="aksshare"
+SQL="$RG-sql"
+SQLPWD="P@ssw0rd123"
+DB="Hotels"
+AI=$RG-ai
+
+# Log in and select correct account
+az login
+az account set --subscription "$SUBSCRIPTION"
+
+# Create resource groups if it does not exist yet
+if [ $(az group exists --name "$RG") == 'false' ]
+then
+    az group create --name "$RG" --location "$LOCATION"
+fi
+
+# Create Azure SQL DB
+if ! az sql server show --resource-group "$RG" --name "$SQL"
+then
+    az sql server create --resource-group $RG --name $SQL --location $LOCATION --admin-user dev --admin-password $SQLPWD
+    az sql server firewall-rule create --resource-group $RG --server $SQL --name all --start-ip-address 0.0.0.0 --end-ip-address 255.255.255.255
+    az sql db create --server $SQL --resource-group $RG --name $DB
+fi
+
+# Create application insights instance
+if ! az resource show --resource-group $RG --resource-type Microsoft.Insights/components --name $AI
+then
+    az resource create --resource-group $RG --name $AI --resource-type Microsoft.Insights/components --location $LOCATION --properties '{"Application_Type":"web"}'
+    AIKEY=$(az resource show --resource-group $RG --resource-type Microsoft.Insights/components --name $AI | jq '.properties.InstrumentationKey' -r)
+fi
+

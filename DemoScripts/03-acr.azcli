@@ -1,0 +1,55 @@
+# === CREATE =========================================================================
+
+# Create Azure Container Registry if it does not exist yet
+if [ $(az acr check-name --name "$REG" --query nameAvailable) == 'true' ]
+then
+    az acr create --resource-group "$RG" --name "$REG" --sku "$SKU" --admin-enabled
+fi
+# Get ID of ACR
+ACRID=$(az acr show --name "$REG" --resource-group "$RG" --query "id" -o tsv)
+
+# You could use the following command to get the password of the admin account
+# Prefer service principals (as shown below) for production scenarios
+# az acr credential show --name "$REG" --query "passwords[0].value"
+
+# Log in with individual account of developer (for e.g. pushing containers using docker cli)
+az acr login --name "$REG"
+
+# Create a service principal if it does not exist yet
+if [ $(az ad sp list --display-name "$SP" | jq length) == '0' ]
+then
+    az ad sp create-for-rbac --name "$SP" --password "$PASSWD"
+fi
+# Get ID of service principal
+SPAPPID=$(az ad sp list --display-name "$SP" --query "[].appId" -o tsv)
+
+# You could use the following command to delete the service principal
+# az ad sp delete --id "$SPAPPID"
+
+# Assign service principal the "Contributor" role so it can push images
+if [ $(az role assignment list --assignee "$SPAPPID" --role Contributor --scope "$ACRID" | jq length) == '0' ]
+then
+    az role assignment create --assignee "$SPAPPID" --role Contributor --scope "$ACRID"
+fi
+
+# Use usual "docker login" with service principal to authenticate at ACR
+docker login -u $SPAPPID -p $PASSWD $REG.azurecr.io
+
+# === PUSH AND BUILD =================================================================
+
+# Push an image to ACR with docker cli
+docker tag $DOCKER_ID/$IMG $REG.azurecr.io/$IMG
+docker push $REG.azurecr.io/$IMG
+
+# Use ACR quick task to build an image in the cloud
+az acr build --registry "$REG" --image $IMG:v2 .
+
+# Inspect storage limits
+az acr show-usage --resource-group "$RG" --name "$REG" --output table
+
+# You could use the following statement to delete the image from ACR
+# az acr repository delete --name "$REG" --image $IMG:v1
+
+# Get a list of repositories and tags in the registry
+az acr repository list --name $REG
+az acr repository show-tags --repository $IMG --name $REG

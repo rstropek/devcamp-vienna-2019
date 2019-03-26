@@ -1,0 +1,54 @@
+# === AKS ============================================================
+
+# Register Kubernetes provider if not already registered
+if [ $(az provider show --namespace Microsoft.ContainerService --query "registrationState" --output tsv) != "Registered" ]
+then
+    az provider register --namespace Microsoft.ContainerService
+fi
+
+# Create Kubernetes cluster
+if ! az aks show --resource-group "$RG" --name "$AKS"
+then
+    az aks create --resource-group "$RG" --name "$AKS" --node-count 3 --generate-ssh-keys \
+        --location westeurope \
+        --client-secret $(az keyvault secret show --vault-name $KV --name $REG-pull-PASSWD --query value -o tsv) \
+        --service-principal $(az keyvault secret show --vault-name $KV --name $REG-pull-usr --query value -o tsv)
+fi
+
+# Connect kubectl with AKS
+az aks get-credentials --resource-group "$RG" --name "$AKS"
+
+# Check connection to AKS
+kubectl get nodes
+
+# Create Kubernetes deployments and services
+kubectl apply -f nginx-demo.yaml
+
+# Watch front-end service to get public IP
+kubectl get service gather19-nginx --watch
+
+
+# Try to reach web app via public IP
+
+# Create a ClusterRoleBinding which gives the role dashboard-admin to the ServiceAccount
+kubectl create clusterrolebinding kubernetes-dashboard -n kube-system --clusterrole=cluster-admin --serviceaccount=kube-system:kubernetes-dashboard
+# Start Kubernetes dashboard (CMD, not bash as we need to start a local browser)
+az aks browse --resource-group "$RG" --name "$AKS"
+
+# Create storage account and create a storage class for it
+if ! az storage account show --resource-group "$RG" --name "$STORAGE"
+then
+    az storage account create --resource-group "$RG" --name "$STORAGE" --location $LOCATION --sku Standard_LRS
+    STORAGE_CONN_STRING=`az storage account show-connection-string -n $STORAGE -g $RG -o tsv`
+    STORAGE_KEY=$(az storage account keys list --resource-group $RG --account-name $STORAGE --query "[0].value" -o tsv)
+fi
+if ! az storage share show --connection-string $STORAGE_CONN_STRING --name $STORAGESHARE
+then
+    az storage share create --connection-string $STORAGE_CONN_STRING --name $STORAGESHARE
+    kubectl create secret generic azure-secret --from-literal=azurestorageaccountname=$STORAGE --from-literal=azurestorageaccountkey=$STORAGE_KEY
+fi
+
+kubectl apply -f azure-files-pod.yaml
+
+# Run nginx webserver getting static website content from Azure files
+kubectl create -f demo/nginx-demo.yaml
