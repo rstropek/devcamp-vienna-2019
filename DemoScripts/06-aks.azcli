@@ -21,12 +21,14 @@ az aks get-credentials --resource-group "$RG" --name "$AKS"
 # Check connection to AKS
 kubectl get nodes
 
-# Create Kubernetes deployments and services
-kubectl apply -f nginx-demo.yaml
+# Deploy demo API to Kubernetes
+cat hotels.yaml \
+  | sed "s/{{CONNSTRING}}/$(az keyvault secret show --vault-name $KV --name $REG-sql-conn --query value -o tsv)/g" \
+  | sed "s/{{AIKEY}}/$AIKEY/g" \
+  | kubectl apply -f -
 
 # Watch front-end service to get public IP
-kubectl get service gather19-nginx --watch
-
+kubectl get service hotelsapi-svc --watch
 
 # Try to reach web app via public IP
 
@@ -34,6 +36,20 @@ kubectl get service gather19-nginx --watch
 kubectl create clusterrolebinding kubernetes-dashboard -n kube-system --clusterrole=cluster-admin --serviceaccount=kube-system:kubernetes-dashboard
 # Start Kubernetes dashboard (CMD, not bash as we need to start a local browser)
 az aks browse --resource-group "$RG" --name "$AKS"
+
+## DEMOS WORK IN PROGRES =========
+
+kubectl create -f https://raw.githubusercontent.com/Azure/aad-pod-identity/master/deploy/infra/deployment.yaml
+
+if ! az identity show --resource-group $RG --name $IMG-pod-identity
+then
+    az identity create --resource-group $RG --name $IMG-pod-identity -o json
+fi
+PODID=$(az identity show --resource-group $RG --name $IMG-pod-identity | jq '.clientId' -r)
+PODIDSCOPE=$(az identity show --resource-group $RG --name $IMG-pod-identity | jq '.id' -r)
+az keyvault set-policy --resource-group $RG --name $KV --secret-permissions get --spn $PODID
+az role assignment create --role "Managed Identity Operator" \
+  --assignee $(az keyvault secret show --vault-name $KV --name $REG-pull-usr --query value -o tsv) --scope $PODIDSCOPE
 
 # Create storage account and create a storage class for it
 if ! az storage account show --resource-group "$RG" --name "$STORAGE"
