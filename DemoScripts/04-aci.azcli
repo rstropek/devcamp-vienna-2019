@@ -1,6 +1,6 @@
 # === START CONTAINER ================================================================
 
-# Create Keyvault where we can securely store service principal name and secret
+# Create Keyvault and store store service principal name, secret, and DB connection string
 if ! az keyvault show --resource-group "$RG" --name "$KV"
 then
     az keyvault create --resource-group "$RG" --name "$KV"
@@ -41,6 +41,14 @@ fi
 
 # === INTEGRATION ====================================================================
 
+# Create a webhook so we get notified about container pushes
+if ! az acr webhook show --registry "$REG" --name "webhook1$REG"
+then
+    az acr webhook create --registry "$REG" --name "webhook1$REG" --actions push --uri $WHTARGET
+
+    # After creating the webhook, trigger a push and see how the webhook is triggered
+fi
+
 # Demo demo website that displays events happening in EventGrid
 if output=$(az appservice plan show --resource-group "$RG" --name "$EVENT_SITE-plan") && [ -z "$output" ]
 then
@@ -60,14 +68,6 @@ if ! az eventgrid event-subscription show --name event-sub-acr --source-resource
 then
     az eventgrid event-subscription create --name event-sub-acr --source-resource-id $ACRID --endpoint $APP_ENDPOINT
     # az eventgrid event-subscription delete --name event-sub-acr --resource-id $ACRID
-fi
-
-# Create a webhook so we get notified about container pushes
-if ! az acr webhook show --registry "$REG" --name "webhook1$REG"
-then
-    az acr webhook create --registry "$REG" --name "webhook1$REG" --actions push --uri $WHTARGET
-
-    # After creating the webhook, trigger a push and see how the webhook is triggered
 fi
 
 # Create a task that listens to change in GitHub and rebuilds images if necessary

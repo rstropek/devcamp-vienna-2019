@@ -6,11 +6,10 @@ then
     az appservice plan create --name "$LINUX_PLAN" --resource-group "$RG" --sku b1 --is-linux
 fi
 
-# Deploy container web app. Note that at the time of writing, Azure CLI does not support ACR.
-# If you want to deploy images from ACR, use PowerShell or the Portal. Support for this feature
-# is on Azure's roadmap.
+# Deploy container web app
 if ! az webapp show --resource-group "$RG" --name "$LINUX_WEB_APP"
 then
+    # Create web app with dummy container image (will be changed later)
     az webapp create --resource-group "$RG" --plan "$LINUX_PLAN" --name "$LINUX_WEB_APP" \
         --deployment-container-image-name nginx:alpine
 
@@ -19,11 +18,13 @@ then
     SPWEBAPP=$(az ad sp list --display-name "$LINUX_WEB_APP" --query "[].appId" -o tsv)
     az keyvault set-policy --resource-group $RG --name $KV --secret-permissions get --spn $SPWEBAPP
 
+    # Get URL of connection string in Keyvault and store it in app settings
     CONNSTRINGVERSION=$(az keyvault secret list-versions --vault-name $KV --name $REG-sql-conn | jq '.[0].id' -r)
     az webapp config appsettings set --resource-group $RG --name $LINUX_WEB_APP \
         --settings "ConnectionStrings__DefaultConnection=@Microsoft.KeyVault(SecretUri=$CONNSTRINGVERSION)" \
                    "ApplicationInsights__InstrumentationKey=$AIKEY"
 
+    # Set container of web app to correct image
     az webapp config container set --resource-group "$RG" --name "$LINUX_WEB_APP" \
         --docker-custom-image-name $REG.azurecr.io/$IMG \
         --docker-registry-server-user $(az keyvault secret show --vault-name $KV --name $REG-pull-usr --query value -o tsv) \

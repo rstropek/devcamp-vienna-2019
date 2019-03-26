@@ -45,8 +45,13 @@ fi
 # Create Azure SQL DB
 if ! az sql server show --resource-group "$RG" --name "$SQL"
 then
+    # Create server
     az sql server create --resource-group $RG --name $SQL --location $LOCATION --admin-user dev --admin-password $SQLPWD
+
+    # To make testing easier, we allow connections for all IP addresses. In real world, limit access accordingly
     az sql server firewall-rule create --resource-group $RG --server $SQL --name all --start-ip-address 0.0.0.0 --end-ip-address 255.255.255.255
+
+    # Create DB
     az sql db create --server $SQL --resource-group $RG --name $DB
 fi
 
@@ -54,6 +59,8 @@ fi
 if ! az resource show --resource-group $RG --resource-type Microsoft.Insights/components --name $AI
 then
     az resource create --resource-group $RG --name $AI --resource-type Microsoft.Insights/components --location $LOCATION --properties '{"Application_Type":"web"}'
+
+    # Get AI instrumentation key and store it in variable
     AIKEY=$(az resource show --resource-group $RG --resource-type Microsoft.Insights/components --name $AI | jq '.properties.InstrumentationKey' -r)
 fi
 
